@@ -1,21 +1,40 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm  # 폰트 관리를 위해 추가
+import matplotlib.font_manager as fm
 import joblib
+import os
+import urllib.request
 
-# --- [추가] 리눅스 서버용 한글 폰트 설정 ---
-# packages.txt에 의해 설치된 나눔고딕 경로를 지정합니다.
-font_path = '/usr/share/fonts/truetype/nanum/NanumGothic.ttf'
-font_prop = fm.FontProperties(fname=font_path)
+# --- [안전한 한글 폰트 다운로드 설정] ---
+@st.cache_data
+def download_nanum_font():
+    font_dir = "fonts"
+    font_path = os.path.join(font_dir, "NanumGothic.ttf")
+    
+    # fonts 폴더가 없으면 생성
+    if not os.path.exists(font_dir):
+        os.makedirs(font_dir)
+        
+    # 폰트 파일이 없으면 네이버 오픈소스 나눔고딕 다운로드
+    if not os.path.exists(font_path):
+        url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
+        urllib.request.urlretrieve(url, font_path)
+    return font_path
 
-# matplotlib 기본 폰트를 나눔고딕으로 설정하고 마이너스 깨짐을 방지합니다.
-plt.rc('font', family='NanumGothic')
-plt.rcParams['axes.unicode_minus'] = False
-# ------------------------------------------
+try:
+    # 폰트 다운로드 및 matplotlib에 등록
+    font_file_path = download_nanum_font()
+    font_prop = fm.FontProperties(fname=font_file_path)
+    plt.rc('font', family=font_prop.get_name())
+    plt.rcParams['axes.unicode_minus'] = False
+except Exception as e:
+    st.warning(f"폰트를 로드하는 중 문제가 발생했습니다: {e}")
+    font_prop = None
+# -------------------------------------
 
 # --- 1. 학습된 파일 및 데이터 로드 ---
-@st.cache_resource  # 모델과 스케일러를 매번 새로 읽어오지 않고 캐싱하여 성능을 높입니다.
+@st.cache_resource
 def load_models_and_data():
     model = joblib.load('lung_model.pkl')
     scaler = joblib.load('scaler.pkl')
@@ -61,26 +80,30 @@ if st.sidebar.button("군집 예측하기"):
     
     fig, ax = plt.subplots(figsize=(8, 6))
 
-    # 기존 데이터 산점도 그리기 (lung.csv의 군집 컬럼명이 'c'라고 가정)
+    # 기존 데이터 산점도 그리기
     if 'c' in df.columns:
         scatter = ax.scatter(df['나이'], df['흡연량'], c=df['c'], alpha=0.5, cmap='viridis', label='기존 환자 데이터')
-        # 색상 바(Colorbar) 추가 및 한글 폰트 개별 적용
         cbar = fig.colorbar(scatter, ax=ax)
-        cbar.set_label('군집 번호', fontproperties=font_prop)
+        if font_prop:
+            cbar.set_label('군집 번호', fontproperties=font_prop)
     else:
-        # 혹시 'c' 컬럼이 없을 경우 기본 산점도 처리
         ax.scatter(df['나이'], df['흡연량'], alpha=0.3, color='gray', label='기존 환자 데이터')
 
     # 새 환자 위치 표시 (크기가 큰 검은색 X)
     ax.scatter(input_age, input_smoke, c='black', s=300, marker='X', label='입력된 환자')
     
-    # 그래프 내부의 글자들이 확실하게 안 깨지도록 fontproperties를 직접 명시합니다.
-    ax.set_xlabel('나이', fontproperties=font_prop)
-    ax.set_ylabel('흡연량', fontproperties=font_prop)
-    ax.set_title(f'나이 vs 흡연량 분포 (입력 환자 군집: {pred_cluster[0]}번)', fontproperties=font_prop)
-    
-    # 범례(Legend) 한글 설정
-    ax.legend(prop=font_prop)
+    # 폰트 오브젝트가 정상 생성되었을 때만 글꼴 개별 적용
+    if font_prop:
+        ax.set_xlabel('나이', fontproperties=font_prop)
+        ax.set_ylabel('흡연량', fontproperties=font_prop)
+        ax.set_title(f'나이 vs 흡연량 분포 (입력 환자 군집: {pred_cluster[0]}번)', fontproperties=font_prop)
+        ax.legend(prop=font_prop)
+    else:
+        ax.set_xlabel('나이')
+        ax.set_ylabel('흡연량')
+        ax.set_title(f'나이 vs 흡연량 분포 (입력 환자 군집: {pred_cluster[0]}번)')
+        ax.legend()
+        
     ax.grid(True, linestyle='--', alpha=0.5)
     
     # 스트림릿 화면에 그래프 출력
